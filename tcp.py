@@ -39,7 +39,7 @@ class Servidor:
             # TODO: talvez você precise passar mais coisas para o construtor de conexão
 
             seq_no=seq_no+1             # mandando o set_no ja somado com 1 devido estar abrindo uma nova conexao
-            ack_no=seq_no               #
+
             conexao = self.conexoes[id_conexao] = Conexao(self, id_conexao, seq_no)
 
             # TODO: você precisa fazer o handshake aceitando a conexão. Escolha se você acha melhor
@@ -67,7 +67,7 @@ class Conexao:
         self.dst_addr = id_conexao[0]           #idconexao[0] eh o endereco que enviou o dado
         self.dst_port = id_conexao[1]
         self.src_addr = id_conexao[2]           #endereco do servidor
-        self.src_port = id_conexao[3]           #endereco do servidor
+        self.src_port = id_conexao[3]           
 
         self.callback = None
         self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
@@ -80,13 +80,21 @@ class Conexao:
         # Esta função é só um exemplo e pode ser removida
         print('Este é um exemplo de como fazer um timer')
 
-    def _rdt_rcv(self, seq_no, ack_no, flags, payload):
-        # TODO: trate aqui o recebimento de segmentos provenientes da camada de rede.
-        # Chame self.callback(self, dados) para passar dados para a camada de aplicação após
-        # garantir que eles não sejam duplicados e que tenham sido recebidos em ordem.
-        print('recebido payload: %r' % payload)
+    def _rdt_rcv(self, dest_seq_no, src_ack_no, flags, payload):
 
-    # Os métodos abaixo fazem parte da API
+        #verificando se o seq recebido do outro lado da conexao eh igual ao ultimo ack enviado
+        if dest_seq_no == self.ack_no:
+
+            #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
+
+            self.ack_no=self.ack_no+len(payload)
+
+            self.callback(self, payload)       #na camada de rede foi defenido como callback uma funcao que da um append no payload
+
+            #print('recebido payload: %r' % payload)
+
+            #enviando ACK para informar a outra ponta que a mensagem foi recebida
+            self.enviar(FLAGS_ACK, payload)
 
     def registrar_recebedor(self, callback):
         """
@@ -100,8 +108,9 @@ class Conexao:
         Usado pela camada de aplicação para enviar dados
         """
 
-        #make header: src_port, dst_port, seq_no, ack_no, flags
-        header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)
+        #nada eh feito com o payload ainda
+
+        header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
         segmento=fix_checksum(header, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)                                  #enviando um dado de volta para o destinatario desta conexao
