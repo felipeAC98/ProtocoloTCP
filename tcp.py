@@ -82,20 +82,17 @@ class Conexao:
     def _rdt_rcv(self, dest_seq_no, dest_ack_no, flags, payload):
 
         #verificando se o seq recebido do outro lado da conexao eh igual ao ultimo ack enviado
-        print("dest_seq_no: " + str(dest_seq_no)+ " ack_no: "+str(self.ack_no))
+        print("dest_ack_no: " + str(dest_ack_no)+ " seq_no: "+str(self.seq_no))
         if dest_seq_no == self.ack_no:
 
             #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
-            print("Payload pro Ack: "+str(len(payload)))
             self.ack_no=self.ack_no+len(payload)
 
             self.callback(self, payload)       #na camada de rede foi defenido como callback uma funcao que da um append no payload
 
-            #print('recebido payload: %r' % payload)
-
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
             self.seq_no = dest_ack_no         
-            self.enviar(payload)
+            self.enviar(b'')                    #ACK de confirmacao nao possui payload
 
     def registrar_recebedor(self, callback):
         """
@@ -108,25 +105,23 @@ class Conexao:
         """
         Usado pela camada de aplicação para enviar dados
         """
-        print("TCP Payload: " + str(len(payload)))
+
         while len(payload) > MSS:
-            print("Seq temp: " + str(self.seq_no))
-            print("Ack temp: " + str(self.ack_no))
-            temporary_payload = payload[0:MSS]
-            print("len: " + str(len(temporary_payload)))
+
+            temporary_payload = payload[:MSS]
             header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
             segmento=fix_checksum(header, self.src_addr, self.dst_addr ) + temporary_payload
             self.servidor.rede.enviar(segmento, self.dst_addr)
             self.seq_no += MSS                                  #enviando um dado de volta para o destinatario desta conexao
-            payload = payload[MSS+1:]
+            payload = payload[MSS:]
 
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
-
-        segmento=fix_checksum(header, self.src_addr, self.dst_addr ) + payload
+        
+        print("Seq temp: " + str(self.seq_no))
+        segmento=fix_checksum(header, self.src_addr, self.dst_addr )+ payload
         self.servidor.rede.enviar(segmento, self.dst_addr)
-        print("Era esse? " + str(self.seq_no))
-        #self.seq_no += len(payload)
+        self.seq_no += len(payload)
 
         pass
 
