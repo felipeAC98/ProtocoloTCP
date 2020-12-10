@@ -62,6 +62,7 @@ class Conexao:
     def __init__(self, servidor, id_conexao,ack_no):
         self.servidor = servidor
         self.id_conexao = id_conexao
+        self.fecharConexao = False
 
         self.dst_addr = id_conexao[0]           #idconexao[0] eh o endereco que enviou o dado
         self.dst_port = id_conexao[1]
@@ -84,22 +85,30 @@ class Conexao:
         #verificando se o seq recebido do outro lado da conexao eh igual ao ultimo ack enviado
         print("dest_ack_no: " + str(dest_ack_no)+ " seq_no: "+str(self.seq_no))
         if dest_seq_no == self.ack_no:
-
             #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
-            
-
-            self.callback(self, payload)       #na camada de rede foi defenido como callback uma funcao que da um append no payload
 
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
-            #self.seq_no = dest_ack_no         
-            if len(payload) > 0:
-                self.ack_no += len(payload)
-                self.enviar(b'')
-            elif (flags & FLAGS_SYN) == FLAGS_SYN:
+            #self.seq_no = dest_ack_no 
+            if self.fecharConexao:
+                self.callback(self, b'')
+                self.servidor.conexoes.pop(self.id_conexao)
+            elif (flags & FLAGS_FIN) == FLAGS_FIN:
+                self.callback(self, b'')       # na camada de rede foi defenido como callback uma funcao que da um append no payload        
+                self.fecharConexao = True
                 self.ack_no += 1
-                
-                                #ACK de confirmacao nao possui payload
+                header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, FLAGS_ACK|FLAGS_FIN)   #make header: src_port, dst_port, seq_no, ack_no, flags
+        
+                segmento=fix_checksum(header, self.src_addr, self.dst_addr )
+                self.servidor.rede.enviar(segmento, self.dst_addr)
 
+            elif len(payload) > 0:
+                self.callback(self, payload)       # na camada de rede foi defenido como callback uma funcao que da um append no payload
+                self.ack_no += len(payload)
+                self.enviar(b'')                   #ACK de confirmacao nao possui payload
+            elif (flags & FLAGS_SYN) == FLAGS_SYN:
+                self.callback(self, payload)
+                self.ack_no += 1
+                                
     def registrar_recebedor(self, callback):
         """
         Usado pela camada de aplicação para registrar uma função para ser chamada
@@ -129,7 +138,6 @@ class Conexao:
 
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
-        print("Seq temp: " + str(self.seq_no))
         segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)
 
@@ -143,8 +151,9 @@ class Conexao:
         pass
 
     def fechar(self):
-        """
-        Usado pela camada de aplicação para fechar a conexão
-        """
-        # TODO: implemente aqui o fechamento de conexão
+        header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, FLAGS_FIN)   #make header: src_port, dst_port, seq_no, ack_no, flags
+        
+        segmento=fix_checksum(header, self.src_addr, self.dst_addr )
+        self.servidor.rede.enviar(segmento, self.dst_addr)
+        
         pass
