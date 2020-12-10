@@ -94,11 +94,11 @@ class Conexao:
             #self.seq_no = dest_ack_no         
             if len(payload) > 0:
                 self.ack_no += len(payload)
+                self.enviar(b'')
             elif (flags & FLAGS_SYN) == FLAGS_SYN:
                 self.ack_no += 1
-            else:
-                pass
-            self.enviar(b'')                    #ACK de confirmacao nao possui payload
+                
+                                #ACK de confirmacao nao possui payload
 
     def registrar_recebedor(self, callback):
         """
