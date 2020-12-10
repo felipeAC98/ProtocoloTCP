@@ -48,8 +48,7 @@ class Servidor:
                 self.callback(conexao)
 
                 flags=FLAGS_SYN|FLAGS_ACK   #flags necessarias para quando uma nova conexao eh iniciada
-
-                conexao.enviar(flags,payload)
+                conexao.enviar(payload, flags)
 
         elif id_conexao in self.conexoes:
             # Passa para a conexão adequada se ela já estiver estabelecida
@@ -80,21 +79,23 @@ class Conexao:
         # Esta função é só um exemplo e pode ser removida
         print('Este é um exemplo de como fazer um timer')
 
-    def _rdt_rcv(self, dest_seq_no, src_ack_no, flags, payload):
+    def _rdt_rcv(self, dest_seq_no, dest_ack_no, flags, payload):
 
         #verificando se o seq recebido do outro lado da conexao eh igual ao ultimo ack enviado
+        print("dest_seq_no: " + str(dest_seq_no)+ " ack_no: "+str(self.ack_no))
         if dest_seq_no == self.ack_no:
 
             #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
-
+            print("Payload pro Ack: "+str(len(payload)))
             self.ack_no=self.ack_no+len(payload)
 
             self.callback(self, payload)       #na camada de rede foi defenido como callback uma funcao que da um append no payload
 
             #print('recebido payload: %r' % payload)
 
-            #enviando ACK para informar a outra ponta que a mensagem foi recebida
-            self.enviar(FLAGS_ACK, payload)
+            #enviando ACK para informar a outra ponta que a mensagem foi recebida 
+            self.seq_no = dest_ack_no         
+            self.enviar(payload)
 
     def registrar_recebedor(self, callback):
         """
@@ -103,17 +104,29 @@ class Conexao:
         """
         self.callback = callback
 
-    def enviar(self, flags, payload):
+    def enviar(self, payload, flags=FLAGS_ACK):
         """
         Usado pela camada de aplicação para enviar dados
         """
+        print("TCP Payload: " + str(len(payload)))
+        while len(payload) > MSS:
+            print("Seq temp: " + str(self.seq_no))
+            print("Ack temp: " + str(self.ack_no))
+            temporary_payload = payload[0:MSS]
+            print("len: " + str(len(temporary_payload)))
+            header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
-        #nada eh feito com o payload ainda
+            segmento=fix_checksum(header, self.src_addr, self.dst_addr ) + temporary_payload
+            self.servidor.rede.enviar(segmento, self.dst_addr)
+            self.seq_no += MSS                                  #enviando um dado de volta para o destinatario desta conexao
+            payload = payload[MSS+1:]
 
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
-        segmento=fix_checksum(header, self.src_addr, self.dst_addr )
-        self.servidor.rede.enviar(segmento, self.dst_addr)                                  #enviando um dado de volta para o destinatario desta conexao
+        segmento=fix_checksum(header, self.src_addr, self.dst_addr ) + payload
+        self.servidor.rede.enviar(segmento, self.dst_addr)
+        print("Era esse? " + str(self.seq_no))
+        #self.seq_no += len(payload)
 
         pass
 
