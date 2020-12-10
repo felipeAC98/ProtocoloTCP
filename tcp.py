@@ -86,12 +86,18 @@ class Conexao:
         if dest_seq_no == self.ack_no:
 
             #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
-            self.ack_no=self.ack_no+len(payload)
+            
 
             self.callback(self, payload)       #na camada de rede foi defenido como callback uma funcao que da um append no payload
 
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
-            self.seq_no = dest_ack_no         
+            #self.seq_no = dest_ack_no         
+            if len(payload) > 0:
+                self.ack_no += len(payload)
+            elif (flags & FLAGS_SYN) == FLAGS_SYN:
+                self.ack_no += 1
+            else:
+                pass
             self.enviar(b'')                    #ACK de confirmacao nao possui payload
 
     def registrar_recebedor(self, callback):
@@ -107,21 +113,32 @@ class Conexao:
         """
 
         while len(payload) > MSS:
+            print("Tinha de payload: " + str(len(payload)))
 
             temporary_payload = payload[:MSS]
             header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
-            segmento=fix_checksum(header, self.src_addr, self.dst_addr ) + temporary_payload
+            segmento=fix_checksum(header + temporary_payload, self.src_addr, self.dst_addr ) 
             self.servidor.rede.enviar(segmento, self.dst_addr)
             self.seq_no += MSS                                  #enviando um dado de volta para o destinatario desta conexao
             payload = payload[MSS:]
+            #if len(payload) == 0:
+            #    print("Entrou aqui")
+            #    pass
+            print("Sobrou de payload: " + str(len(payload)))
 
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
         print("Seq temp: " + str(self.seq_no))
-        segmento=fix_checksum(header, self.src_addr, self.dst_addr )+ payload
+        segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)
-        self.seq_no += len(payload)
+
+        if len(payload) > 0:
+            self.seq_no += len(payload)
+        elif (flags & FLAGS_SYN) == FLAGS_SYN:
+            self.seq_no += 1
+
+        print("Novo Seq: " + str(self.seq_no))
 
         pass
 
