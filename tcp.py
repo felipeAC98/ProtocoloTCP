@@ -70,11 +70,13 @@ class Conexao:
         self.src_port = id_conexao[3]           
 
         self.callback = None
-        self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
+        self.timer = 0  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
         #self.timer.cancel()   # é possível cancelar o timer chamando esse método; esta linha é só um exemplo e pode ser removida
 
         self.ack_no= ack_no
         self.seq_no= random.randint(0, 0xffff)  #o seq no deve ser um numero aleatorio
+
+        self.ultimoPayload=b''
 
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
@@ -84,14 +86,20 @@ class Conexao:
 
         #verificando se o seq recebido do outro lado da conexao eh igual ao ultimo ack enviado
         print("dest_ack_no: " + str(dest_ack_no)+ " seq_no: "+str(self.seq_no))
-        if dest_seq_no == self.ack_no:
-            #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
 
+        if dest_seq_no == self.ack_no:
+
+            #parando o timer independente da mensagem recebida -> precisa ser revisto!!
+            self.timer.cancel()
+
+            #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
             #self.seq_no = dest_ack_no 
+
             if self.fecharConexao:
                 self.callback(self, b'')
                 self.servidor.conexoes.pop(self.id_conexao)
+
             elif (flags & FLAGS_FIN) == FLAGS_FIN:
                 self.callback(self, b'')       # na camada de rede foi defenido como callback uma funcao que da um append no payload        
                 self.fecharConexao = True
@@ -105,6 +113,7 @@ class Conexao:
                 self.callback(self, payload)       # na camada de rede foi defenido como callback uma funcao que da um append no payload
                 self.ack_no += len(payload)
                 self.enviar(b'')                   #ACK de confirmacao nao possui payload
+
             elif (flags & FLAGS_SYN) == FLAGS_SYN:
                 self.callback(self, payload)
                 self.ack_no += 1
@@ -122,33 +131,33 @@ class Conexao:
         """
 
         while len(payload) > MSS:
-            print("Tinha de payload: " + str(len(payload)))
 
             temporary_payload = payload[:MSS]
-            header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
 
-            segmento=fix_checksum(header + temporary_payload, self.src_addr, self.dst_addr ) 
-            self.servidor.rede.enviar(segmento, self.dst_addr)
-            self.seq_no += MSS                                  #enviando um dado de volta para o destinatario desta conexao
+            self.enviaPacote(temporary_payload,flags, self.seq_no)
+
             payload = payload[MSS:]
-            #if len(payload) == 0:
-            #    print("Entrou aqui")
-            #    pass
-            print("Sobrou de payload: " + str(len(payload)))
 
-        header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
+        self.enviaPacote(payload,flags,self.seq_no)
+
+        pass
+
+    def enviaPacote(self, payload,flags, seq_no, jaPassou=False):
+
+        header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
         segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)
 
-        if len(payload) > 0:
-            self.seq_no += len(payload)
-        elif (flags & FLAGS_SYN) == FLAGS_SYN:
-            self.seq_no += 1
+        self.timer= asyncio.get_event_loop().call_later(1, self.enviaPacote,payload,flags, seq_no,True)
 
-        print("Novo Seq: " + str(self.seq_no))
+        if jaPassou==False:
+            if len(payload) > 0:
+                self.seq_no += len(payload)
+            elif (flags & FLAGS_SYN) == FLAGS_SYN:
+                self.seq_no += 1
 
-        pass
+        self.ultimoPayload=payload
 
     def fechar(self):
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, FLAGS_FIN)   #make header: src_port, dst_port, seq_no, ack_no, flags
