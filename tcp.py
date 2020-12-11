@@ -100,32 +100,21 @@ class Conexao:
                 if len(self.filaPacotes)>0:
                     self.enviaPacote()
 
-            #se for entao significa que este pacote eh o proximo que eu deveria estar recebendo 
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
-            #self.seq_no = dest_ack_no 
-
             if self.fecharConexao:
                 self.callback(self, b'')
                 self.servidor.conexoes.pop(self.id_conexao)
 
             elif (flags & FLAGS_FIN) == FLAGS_FIN:
-                self.callback(self, b'')       # na camada de rede foi defenido como callback uma funcao que da um append no payload        
+                self.callback(self, b'')                      # na camada de rede foi defenido como callback uma funcao que da um append no payload        
                 self.fecharConexao = True
                 self.ack_no += 1
-                header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, FLAGS_ACK|FLAGS_FIN)   #make header: src_port, dst_port, seq_no, ack_no, flags
-        
-                segmento=fix_checksum(header, self.src_addr, self.dst_addr )
-                self.servidor.rede.enviar(segmento, self.dst_addr)
+                self.enviaConfirmacao(FLAGS_ACK|FLAGS_FIN)
 
             elif len(payload) > 0:
-                print('eu')
-                self.callback(self, payload)          # na camada de rede foi defenido como callback uma funcao que da um append no payload
+                self.callback(self, payload)                  # na camada de rede foi defenido como callback uma funcao que da um append no payload
                 self.ack_no += len(payload)
-                self.enviaAck(FLAGS_ACK)              #ACK de confirmacao nao possui payload, foi feita uma funcao pois devido ao passo5 so se envia algo para a funcao self.enviar ccaso queira aguardar o ack de resposta
-
-            elif (flags & FLAGS_SYN) == FLAGS_SYN:
-                self.callback(self, payload)
-                self.ack_no += 1
+                self.enviaConfirmacao(FLAGS_ACK)              #ACK de confirmacao nao possui payload, foi feita uma funcao pois devido ao passo5 so se envia algo para a funcao self.enviar ccaso queira aguardar o ack de resposta
                                 
     def registrar_recebedor(self, callback):
         """
@@ -154,8 +143,6 @@ class Conexao:
             elif (flags & FLAGS_SYN) == FLAGS_SYN:
                 self.seq_no += 1
 
-            temp_timer=self.timer
-
             payload = payload[MSS:]
 
         self.filaPacotes.append([payload,flags, self.seq_no, False])
@@ -171,19 +158,19 @@ class Conexao:
 
         pass
 
+    #essa funcao soh envia o primeiro item da filaPacotes, portanto se ele nao for o primeiro tera que aguardar o primeiro receber seu ack
     def enviaPacote(self):
 
         payload,flags, seq_no, jaPassou=self.filaPacotes[0]
 
-        print('seq_no:' +str(seq_no))
         header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
         segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)
 
-        self.timer= asyncio.get_event_loop().call_later(1, self.enviaPacote)
+        self.timer= asyncio.get_event_loop().call_later(1, self.enviaPacote)            #inicializando o timer do recebimento do ACK deste pacote
 
-    def enviaAck(self, flags):
+    def enviaConfirmacao(self, flags):
 
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
