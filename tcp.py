@@ -89,6 +89,7 @@ class Conexao:
         self.devRTT = 0.5
         self.timeoutInterval = 3
         self.primeiraMensagem = True
+        self.segundaMensagem = False
 
         
 
@@ -118,20 +119,22 @@ class Conexao:
             #se possuir pacotes na fila de pacotes, entao o ultimo sera retirado pois a mensagem dele foi recebida
             if len(self.filaPacotes)>0:
                 _,_, seq_no, _=self.filaPacotes[0]
+
+                #O caso de teste parece ignorar a primeira mensagem para fins de calculo, somente a segunda eh considerada para calculos
                 if self.primeiraMensagem:
                     self.ultimoSeq = -1
                     self.primeiraMensagem = False
+                    self.segundaMensagem = True
+
                 if self.ultimoSeq == seq_no and not self.pacoteRuim:
                     self.timeConfirmacao = time.time()
                     self.SampleRTT = self.timeConfirmacao - self.timeEnvio
-                    if self.primeiraMensagem or self.SampleRTT < 0.15:
-                        print("Primeira né meu")
-                        print(self.timeEnvio, self.timeConfirmacao)
-                        self.primeiraMensagem = False
+                    
+                    if self.segundaMensagem:
+                        self.segundaMensagem = False
                         self.estimatedRTT = self.SampleRTT
                         self.devRTT = self.SampleRTT/2
                     else:
-                        print("Calculei essa caraca")
                         self.devRTT = 0.75 * self.devRTT + 0.25 * abs(self.SampleRTT - self.estimatedRTT)
                         self.estimatedRTT = 0.875 * self.estimatedRTT + 0.125 * self.SampleRTT 
                     self.timeoutInterval = self.estimatedRTT + 4 * self.devRTT
@@ -213,13 +216,12 @@ class Conexao:
         payload,flags, seq_no, jaPassou=self.filaPacotes[0]
 
         if self.ultimoSeq != seq_no:
-            print("Charadinha")
             self.timeEnvio = time.time()
             self.ultimoSeq = seq_no
             self.pacoteRuim = False
+
         else:
             self.pacoteRuim = True
-            print("Ric and Morta")
 
         header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
@@ -236,10 +238,7 @@ class Conexao:
         self.servidor.rede.enviar(segmento, self.dst_addr)
 
     def fechar(self):
-        if self.ultimoSeq != seq_no:
-            print("Fechou")
-            self.timeEnvio = time.time()
-            self.ultimoSeq = seq_no
+
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, FLAGS_FIN)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
         segmento=fix_checksum(header, self.src_addr, self.dst_addr )
