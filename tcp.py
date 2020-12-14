@@ -97,6 +97,7 @@ class Conexao:
         self.seq_no= random.randint(0, 0xffff)  #o seq no deve ser um numero aleatorio
 
         self.filaPacotes = []
+        self.tamanhoJanela = 1
 
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
@@ -120,6 +121,13 @@ class Conexao:
             if len(self.filaPacotes)>0:
                 _,_, seq_no, _=self.filaPacotes[0]
 
+                #print("self.tamanhoJanela-1:" ,self.tamanhoJanela-1)
+                if len(self.filaPacotes)>self.tamanhoJanela:
+                    _,_, ultimoEnviado_seq_no, _=self.filaPacotes[self.tamanhoJanela-1]
+
+                else:
+                    ultimoEnviado_seq_no=seq_no
+
                 #O caso de teste parece ignorar a primeira mensagem para fins de calculo, somente a segunda eh considerada para calculos
                 if self.primeiraMensagem:
                     self.ultimoSeq = -1
@@ -134,18 +142,28 @@ class Conexao:
                         self.segundaMensagem = False
                         self.estimatedRTT = self.SampleRTT
                         self.devRTT = self.SampleRTT/2
+
                     else:
                         self.devRTT = 0.75 * self.devRTT + 0.25 * abs(self.SampleRTT - self.estimatedRTT)
-                        self.estimatedRTT = 0.875 * self.estimatedRTT + 0.125 * self.SampleRTT 
+                        self.estimatedRTT = 0.875 * self.estimatedRTT + 0.125 * self.SampleRTT
+
                     self.timeoutInterval = self.estimatedRTT + 4 * self.devRTT
-                    self.ultimoSeq = -1
+                    #self.ultimoSeq = -1
                     self.pacoteRuim = False
                     print("SampleRTT: ", self.SampleRTT)
                     print("estimatedRTT: ", self.estimatedRTT)
                     print("devRTT: ", self.devRTT)
                     print("timeoutInterval: ", self.timeoutInterval)
+                
+                for i in range(self.tamanhoJanela):    
+                    self.filaPacotes.pop(0)
 
-                self.filaPacotes.pop(0)
+                    if len(self.filaPacotes)<1:
+                        break
+                        
+                if (self.ultimoSeq == seq_no or self.ultimoSeq == ultimoEnviado_seq_no ) and not self.pacoteRuim :
+                    self.tamanhoJanela = (self.tamanhoJanela+1)
+
                 #caso ainda tenha alguem na fila a funcao precisa ser chamada novamente para enviar o proximo pacote da fila
                 if len(self.filaPacotes)>0:
                     self.enviaPacote()
@@ -165,8 +183,6 @@ class Conexao:
                 self.callback(self, payload)                  # na camada de rede foi defenido como callback uma funcao que da um append no payload
                 self.ack_no += len(payload)
                 self.enviaConfirmacao(FLAGS_ACK)              #ACK de confirmacao nao possui payload, foi feita uma funcao pois devido ao passo5 so se envia algo para a funcao self.enviar ccaso queira aguardar o ack de resposta
-
-
                                 
     def registrar_recebedor(self, callback):
         """
@@ -186,7 +202,7 @@ class Conexao:
 
             self.filaPacotes.append([temporary_payload,flags, self.seq_no, False])
 
-            if len(self.filaPacotes)<=1:             #se a fila estava vazia entao o enviador eh chamado novamente 
+            if len(self.filaPacotes)==self.tamanhoJanela:             #se a fila estava vazia entao o enviador eh chamado novamente 
                 self.enviaPacote()
 
             #Somando o seq_no para a proxima mensagem que for ser enviada ir corretamente
@@ -199,7 +215,7 @@ class Conexao:
 
         self.filaPacotes.append([payload,flags, self.seq_no, False])
 
-        if len(self.filaPacotes)<=1:             #se a fila estava vazia entao o enviador eh chamado novamente
+        if len(self.filaPacotes)<=self.tamanhoJanela:             #se a fila estava vazia entao o enviador eh chamado novamente
             self.enviaPacote()
 
         #Somando o seq_no para a proxima mensagem que for ser enviada ir corretamente
@@ -212,22 +228,33 @@ class Conexao:
 
     #essa funcao soh envia o primeiro item da filaPacotes, portanto se ele nao for o primeiro tera que aguardar o primeiro receber seu ack
     def enviaPacote(self):
+        print("enviaPacote")
 
-        payload,flags, seq_no, jaPassou=self.filaPacotes[0]
+        contadorPacote=0
 
-        if self.ultimoSeq != seq_no:
-            self.timeEnvio = time.time()
-            self.ultimoSeq = seq_no
-            self.pacoteRuim = False
+        while(contadorPacote<self.tamanhoJanela and contadorPacote<len(self.filaPacotes)):
 
-        else:
-            self.pacoteRuim = True
+            print(contadorPacote)
+            print('aqui' ,len(self.filaPacotes))
+            payload,flags, seq_no, jaPassou=self.filaPacotes[contadorPacote]
 
-        header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
+            if self.ultimoSeq != seq_no:
+                self.timeEnvio = time.time()
+                self.ultimoSeq = seq_no
+                self.pacoteRuim = False
+
+            else:
+                self.pacoteRuim = True
+                self.tamanhoJanela = max(1,int(self.tamanhoJanela/2))
+
+            header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
+            
+            segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
+            self.servidor.rede.enviar(segmento, self.dst_addr)
+            print("Esse é nosso timeout: ", self.timeoutInterval)
+
+            contadorPacote=contadorPacote+1
         
-        segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
-        self.servidor.rede.enviar(segmento, self.dst_addr)
-        print("Esse é nosso timeout: ", self.timeoutInterval)
         self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPacote)            #inicializando o timer do recebimento do ACK deste pacote
 
     def enviaConfirmacao(self, flags):
