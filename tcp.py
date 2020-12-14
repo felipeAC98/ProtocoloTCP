@@ -2,6 +2,7 @@ import asyncio
 from tcputils import *
 import random
 import time
+from math import ceil 
 
 class Servidor:
     def __init__(self, rede, porta):
@@ -91,8 +92,6 @@ class Conexao:
         self.primeiraMensagem = True
         self.segundaMensagem = False
 
-        
-
         self.ack_no= ack_no
         self.seq_no= random.randint(0, 0xffff)  #o seq no deve ser um numero aleatorio
 
@@ -124,7 +123,6 @@ class Conexao:
                 #print("self.tamanhoJanela-1:" ,self.tamanhoJanela-1)
                 if len(self.filaPacotes)>self.tamanhoJanela:
                     _,_, ultimoEnviado_seq_no, _=self.filaPacotes[self.tamanhoJanela-1]
-
                 else:
                     ultimoEnviado_seq_no=seq_no
 
@@ -133,8 +131,8 @@ class Conexao:
                     self.ultimoSeq = -1
                     self.primeiraMensagem = False
                     self.segundaMensagem = True
-
-                if self.ultimoSeq == seq_no and not self.pacoteRuim:
+                print("Ultimo Seq: ", self.ultimoSeq, " seq_no: ", seq_no)
+                if self.ultimoSeq == ultimoEnviado_seq_no and not self.pacoteRuim:
                     self.timeConfirmacao = time.time()
                     self.SampleRTT = self.timeConfirmacao - self.timeEnvio
                     
@@ -161,7 +159,7 @@ class Conexao:
                     if len(self.filaPacotes)<1:
                         break
                         
-                if (self.ultimoSeq == seq_no or self.ultimoSeq == ultimoEnviado_seq_no ) and not self.pacoteRuim :
+                if self.ultimoSeq == ultimoEnviado_seq_no:
                     self.tamanhoJanela = (self.tamanhoJanela+1)
 
                 #caso ainda tenha alguem na fila a funcao precisa ser chamada novamente para enviar o proximo pacote da fila
@@ -238,15 +236,6 @@ class Conexao:
             print('aqui' ,len(self.filaPacotes))
             payload,flags, seq_no, jaPassou=self.filaPacotes[contadorPacote]
 
-            if self.ultimoSeq != seq_no:
-                self.timeEnvio = time.time()
-                self.ultimoSeq = seq_no
-                self.pacoteRuim = False
-
-            else:
-                self.pacoteRuim = True
-                self.tamanhoJanela = max(1,int(self.tamanhoJanela/2))
-
             header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
             
             segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
@@ -254,8 +243,29 @@ class Conexao:
             print("Esse é nosso timeout: ", self.timeoutInterval)
 
             contadorPacote=contadorPacote+1
+
+        if self.ultimoSeq != seq_no:
+                
+            self.timeEnvio = time.time()
+            self.ultimoSeq = seq_no
+            self.pacoteRuim = False
+
+        self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPrimeiroPacote)            #inicializando o timer do recebimento do ACK deste pacote
+
+    def enviaPrimeiroPacote(self):
+        payload,flags, seq_no, jaPassou=self.filaPacotes[0]
+        print("tamanhoJanela antes ", self.tamanhoJanela)
+        self.pacoteRuim = True
+        self.tamanhoJanela = max(1,int(ceil(self.tamanhoJanela/2)))
+        print("tamanhoJanela depois ", self.tamanhoJanela)
+
+        header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
         
-        self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPacote)            #inicializando o timer do recebimento do ACK deste pacote
+        segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
+        self.servidor.rede.enviar(segmento, self.dst_addr)
+        print("Esse é nosso timeout: ", self.timeoutInterval)
+
+        self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPrimeiroPacote)            #inicializando o timer do recebimento do ACK deste pacote
 
     def enviaConfirmacao(self, flags):
         #self.timeEnvio = time.time()
