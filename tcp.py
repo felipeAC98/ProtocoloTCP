@@ -131,7 +131,7 @@ class Conexao:
                     self.ultimoSeq = -1
                     self.primeiraMensagem = False
                     self.segundaMensagem = True
-                print("Ultimo Seq: ", self.ultimoSeq, " seq_no: ", seq_no)
+
                 if self.ultimoSeq == ultimoEnviado_seq_no and not self.pacoteRuim:
                     self.timeConfirmacao = time.time()
                     self.SampleRTT = self.timeConfirmacao - self.timeEnvio
@@ -152,18 +152,44 @@ class Conexao:
                     print("estimatedRTT: ", self.estimatedRTT)
                     print("devRTT: ", self.devRTT)
                     print("timeoutInterval: ", self.timeoutInterval)
-                
-                for i in range(self.tamanhoJanela):    
+
+                #Remocao de pacotes recebidos pelo outro lado
+
+                contadorRemocoesNecessarias=0
+
+                #se nao for um pacote ruim, entao todos pacotes da janela foram recebidos pelo outro lado, logo podemos tirar tudo
+                if not self.pacoteRuim:
+
+                    contadorRemocoesNecessarias=self.tamanhoJanela                         
+
+                #caso seja um pacote ruim, precisamos averiguar oq foi recebido pelo outro lado
+                else:
+
+                    #Aqui estamos verificando pacote por pacote da lista daqueles que possuirem seq_no menor que o recebido para serem retirados da fila de envio de pacotes
+                    for pacote in self.filaPacotes:
+
+                        _,_, seq_no, _=pacote
+
+                        #caso o seq_no do pacote da fila seja maior ou igual ao recebido, entao ele nao foi confirmado ainda pelo outro lado da conexao
+                        if seq_no >= dest_ack_no:
+                            break
+
+                        contadorRemocoesNecessarias+=1
+
+                #aqui de fato estamos retirando aqueles que foram confirmados pelo outro lado
+                for i in range(contadorRemocoesNecessarias):
                     self.filaPacotes.pop(0)
 
                     if len(self.filaPacotes)<1:
                         break
-                        
+
+                #se o ultimo envio deu certo, entao aumentamos o tamanho da janela
                 if self.ultimoSeq == ultimoEnviado_seq_no:
                     self.tamanhoJanela = (self.tamanhoJanela+1)
 
                 #caso ainda tenha alguem na fila a funcao precisa ser chamada novamente para enviar o proximo pacote da fila
                 if len(self.filaPacotes)>0:
+
                     self.enviaPacote()
 
             #enviando ACK para informar a outra ponta que a mensagem foi recebida 
@@ -181,7 +207,9 @@ class Conexao:
                 self.callback(self, payload)                  # na camada de rede foi defenido como callback uma funcao que da um append no payload
                 self.ack_no += len(payload)
                 self.enviaConfirmacao(FLAGS_ACK)              #ACK de confirmacao nao possui payload, foi feita uma funcao pois devido ao passo5 so se envia algo para a funcao self.enviar ccaso queira aguardar o ack de resposta
-                                
+        
+        print("_rdt_rcv: len(self.filaPacotes): " + str(len(self.filaPacotes)))
+
     def registrar_recebedor(self, callback):
         """
         Usado pela camada de aplicação para registrar uma função para ser chamada
@@ -193,6 +221,8 @@ class Conexao:
         """
         Usado pela camada de aplicação para enviar dados
         """
+
+        print("### enviar ###")
 
         while len(payload) > MSS:
 
@@ -226,14 +256,13 @@ class Conexao:
 
     #essa funcao soh envia o primeiro item da filaPacotes, portanto se ele nao for o primeiro tera que aguardar o primeiro receber seu ack
     def enviaPacote(self):
-        print("enviaPacote")
+
+        print("### enviaPacote ###")
 
         contadorPacote=0
 
         while(contadorPacote<self.tamanhoJanela and contadorPacote<len(self.filaPacotes)):
 
-            print(contadorPacote)
-            print('aqui' ,len(self.filaPacotes))
             payload,flags, seq_no, jaPassou=self.filaPacotes[contadorPacote]
 
             header=make_header(self.src_port, self.dst_port, seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
@@ -253,6 +282,9 @@ class Conexao:
         self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPrimeiroPacote)            #inicializando o timer do recebimento do ACK deste pacote
 
     def enviaPrimeiroPacote(self):
+
+        print("### enviaPrimeiroPacote ###")
+
         payload,flags, seq_no, jaPassou=self.filaPacotes[0]
         print("tamanhoJanela antes ", self.tamanhoJanela)
         self.pacoteRuim = True
@@ -263,10 +295,11 @@ class Conexao:
         
         segmento=fix_checksum(header + payload, self.src_addr, self.dst_addr )
         self.servidor.rede.enviar(segmento, self.dst_addr)
-        print("Esse é nosso timeout: ", self.timeoutInterval)
+        #print("Esse é nosso timeout: ", self.timeoutInterval)
 
         self.timer= asyncio.get_event_loop().call_later(self.timeoutInterval, self.enviaPrimeiroPacote)            #inicializando o timer do recebimento do ACK deste pacote
-
+        
+        #'''
     def enviaConfirmacao(self, flags):
         #self.timeEnvio = time.time()
         header=make_header(self.src_port, self.dst_port, self.seq_no, self.ack_no, flags)   #make header: src_port, dst_port, seq_no, ack_no, flags
